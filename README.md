@@ -42,11 +42,12 @@ An automatic bell system for schools built with ESP32 that allows configuring an
 1.  Clone this repository
 1.  Create a [credentials.h](vscode-file://vscode-app/private/var/folders/cj/5rfl5xmn2v56tgv0nwf5tlk00000gn/T/AppTranslocation/8DA65265-D99D-4BCC-8D98-9BAE63DCDA0D/d/Visual%20Studio%20Code.app/Contents/Resources/app/out/vs/code/electron-sandbox/workbench/workbench.html) file in the [main](vscode-file://vscode-app/private/var/folders/cj/5rfl5xmn2v56tgv0nwf5tlk00000gn/T/AppTranslocation/8DA65265-D99D-4BCC-8D98-9BAE63DCDA0D/d/Visual%20Studio%20Code.app/Contents/Resources/app/out/vs/code/electron-sandbox/workbench/workbench.html) directory with your WiFi and authentication settings:
 
-``#define SSID "your\_wifi\_ssid"``
-``#define PASSWORD "your\_wifi\_password"``
-``#define HTTP\_USERNAME "your\_username"``
-``#define HTTP\_PASSWORD "your\_password"``
-
+```arduino
+#define SSID "your\_wifi\_ssid"
+#define PASSWORD "your\_wifi\_password"
+#define HTTP\_USERNAME "your\_username"
+#define HTTP\_PASSWORD "your\_password"
+```
      
 3.  Upload the contents of the [data](vscode-file://vscode-app/private/var/folders/cj/5rfl5xmn2v56tgv0nwf5tlk00000gn/T/AppTranslocation/8DA65265-D99D-4BCC-8D98-9BAE63DCDA0D/d/Visual%20Studio%20Code.app/Contents/Resources/app/out/vs/code/electron-sandbox/workbench/workbench.html) folder to SPIFFS using the Arduino IDE "ESP32 Sketch Data Upload" tool
 4.  Compile and upload the main code to your ESP32

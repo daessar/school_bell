@@ -1,4 +1,4 @@
-# Timbre Automático 🛎️
+# Automatic Scholl Bell  🛎️
 
 An automatic bell system for schools built with ESP32 that allows configuring and managing bell schedules through a web interface.
 

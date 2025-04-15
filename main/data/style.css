@@ -90,7 +90,7 @@ header h1 {
     display: block;
     font-size: 16px;
     color: var(--dark-color);
-    padding: 6px 12px;
+    padding: 6px 24px;
     width: auto;
     max-width: 100%;
     box-sizing: border-box;
@@ -157,7 +157,7 @@ header h1 {
 }
 
 .time-inputs input {
-    width: 80px;
+    width: 95px;
     padding: 8px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -234,7 +234,7 @@ header h1 {
 
 .bell-item {
     display: grid;
-    grid-template-columns: 80px 80px auto auto 40px;
+    grid-template-columns: auto 80px auto auto 40px auto;
     gap: 10px;
     align-items: center;
     padding: 12px;
@@ -242,6 +242,12 @@ header h1 {
     border-radius: 6px;
     margin-bottom: 10px;
     background-color: #f9f9f9;
+}
+.bell-name input {
+    width: 100%;
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
 }
 
 .bell-time input {

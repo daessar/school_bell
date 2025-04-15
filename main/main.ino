@@ -14,7 +14,7 @@
 #define DISABLE_BUTTON_PIN 2
 
 // Configuración DFPlayer
-SoftwareSerial mySoftwareSerial(20, 19); // RX, TX
+SoftwareSerial mySoftwareSerial(19, 20); // RX, TX
 DFRobotDFPlayerMini myDFPlayer;
 
 // Reloj RTC
@@ -28,8 +28,8 @@ const char* ssid = SSID;
 const char* password = PASSWORD;
 
 // Credenciales de acceso a la web
-const char* http_username = "admin";
-const char* http_password = "admin";
+const char* http_username = HTTP_USERNAME;
+const char* http_password = HTTP_PASSWORD;
 
 // Variables para control del sistema
 bool timbreEnabled = true;
@@ -39,14 +39,39 @@ int activeSchedule = 0; // 0, 1, o 2 según la configuración activa
 struct BellTime {
   int hour;
   int minute;
-  bool isBreak;
   bool isEndOfDay;
 };
+
+//Tiempo encendido timbre
+int bell_time_duration = 3000; //Tres segundos
 
 // Arreglo para almacenar las tres configuraciones
 std::vector<BellTime> schedules[3];
 int scheduleCount[3] = {0, 0, 0};
-String scheduleNames[3] = {"Normal", "Alternativo 1", "Alternativo 2"};
+String scheduleNames[3] = {"Horario 1", "Horario 2", "Horario 3"};
+
+// Colombia holidays 2025
+const byte holiday_count = 18;
+const uint32_t holidays[holiday_count] = {
+  20250101, // Año Nuevo
+  20250106, // Reyes Magos
+  20250324, // San José
+  20250417, // Jueves Santo
+  20250418, // Viernes Santo
+  20250501, // Día del Trabajo
+  20250512, // Ascensión del Señor
+  20250602, // Corpus Christi
+  20250613, // Sagrado Corazón
+  20250630, // San Pedro y San Pablo
+  20250720, // Independencia de Colombia
+  20250807, // Batalla de Boyacá
+  20250818, // Asunción de la Virgen
+  20251013, // Día de la Raza
+  20251103, // Todos los Santos
+  20251117, // Independencia de Cartagena
+  20251208, // Inmaculada Concepción
+  20251225  // Navidad
+};
 
 
 void setup() {
@@ -139,7 +164,37 @@ String getCurrentTimeString() {
   return String(timeStr);
 }
 
+bool weekend(struct tm &timeinfo) {
+  // tm_wday: 0 = domingo, 6 = sábado
+  return (timeinfo.tm_wday == 0 || timeinfo.tm_wday == 6);
+}
+
+bool holiday(struct tm &timeinfo) {
+  // Formatear fecha como AAAAMMDD para comparar con nuestro array
+  uint32_t fechaNum = (timeinfo.tm_year + 1900) * 10000 + 
+                     (timeinfo.tm_mon + 1) * 100 + 
+                      timeinfo.tm_mday;
+  
+  for (int i = 0; i < holiday_count; i++) {
+    if (holidays[i] == fechaNum) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void checkSchedule() {
+  struct tm timeinfo;
+  if (holiday(timeinfo)){
+    Serial.println("Es festivo");
+    delay(bell_time_duration);
+    timbreEnabled = !timbreEnabled;  
+  }
+  if (weekend(timeinfo)){
+    Serial.println("Es fin de semana");
+    delay(bell_time_duration);
+    timbreEnabled = !timbreEnabled; 
+  }
   if (!timbreEnabled) return;
   
   int currentHour = rtc.getHour(true);
@@ -161,28 +216,23 @@ void checkSchedule() {
 void ringBell(BellTime bellTime) {
   Serial.println("¡Timbre activado!");
   
-  // Seleccionar canción aleatoria entre 1-10 (asumiendo que hay 10 mp3 en la tarjeta SD)
-  int randomSong = random(1, 5);
+  // Seleccionar canción aleatoria entre 1-15 (asumiendo que hay 10 mp3 en la tarjeta SD)
+  int randomSong = random(1, 15);
   myDFPlayer.play(randomSong);
   
   // Activar relé para el timbre
   digitalWrite(RELAY_PIN, LOW);
   
-  // El timbre suena dos veces para recreo o fin de jornada
-  if (bellTime.isBreak) {
-    delay(1000);
-    digitalWrite(RELAY_PIN, LOW);
-    delay(500);
-    digitalWrite(RELAY_PIN, HIGH);
-  } else if (bellTime.isEndOfDay) {
-    delay(1000);
+  // El timbre suena dos veces para fin de jornada
+  if (bellTime.isEndOfDay) {
+    delay(bell_time_duration);
     digitalWrite(RELAY_PIN, HIGH);
     delay(500);
     digitalWrite(RELAY_PIN, LOW);
   }
   
   // Apagar el relé después de 2 segundos
-  delay(2000);
+  delay(bell_time_duration);
   digitalWrite(RELAY_PIN, HIGH);
 }
 
@@ -191,7 +241,7 @@ void checkButtons() {
   if (digitalRead(EMERGENCY_BUTTON_PIN) == LOW) {
     delay(50); // Debounce
     if (digitalRead(EMERGENCY_BUTTON_PIN) == LOW) {
-      BellTime emergencyBell = {0, 0, false, false};
+      BellTime emergencyBell = {0, 0, false};
       ringBell(emergencyBell);
       while(digitalRead(EMERGENCY_BUTTON_PIN) == LOW); // Esperar hasta que se suelte el botón
     }
@@ -231,7 +281,6 @@ void loadSchedules() {
           BellTime bell;
           bell.hour = doc["schedules"][s][i]["hour"];
           bell.minute = doc["schedules"][s][i]["minute"];
-          bell.isBreak = doc["schedules"][s][i]["isBreak"];
           bell.isEndOfDay = doc["schedules"][s][i]["isEndOfDay"];
           schedules[s].push_back(bell);
         }
@@ -241,19 +290,19 @@ void loadSchedules() {
     }
   } else {
     // Configuración por defecto (ejemplo)
-    scheduleNames[0] = "Jornada Normal";
+    scheduleNames[0] = "Horario 1";
     scheduleCount[0] = 9;
     
     // Ejemplo de horario por defecto (se debe configurar mediante la web)
-    schedules[0].push_back({7, 0, false, false});   // 7:00 AM
-    schedules[0].push_back({8, 0, false, false});   // 8:00 AM
-    schedules[0].push_back({9, 0, false, false});   // 9:00 AM
-    schedules[0].push_back({10, 0, false, false});   // 10:00 AM
-    schedules[0].push_back({10, 30, false, false});  // 10:30 AM
-    schedules[0].push_back({11, 0, false, false});  // 11:00 AM
-    schedules[0].push_back({12, 0, false, false});  // 12:00 PM
-    schedules[0].push_back({13, 0, false, false});  // 1:00 PM
-    schedules[0].push_back({14, 0, false, true});   // 2:00 PM - Fin de jornada
+    schedules[0].push_back({7, 0, false});   // 7:00 AM
+    schedules[0].push_back({8, 0, false});   // 8:00 AM
+    schedules[0].push_back({9, 0, false});   // 9:00 AM
+    schedules[0].push_back({10, 0, false});   // 10:00 AM
+    schedules[0].push_back({10, 30, false});  // 10:30 AM
+    schedules[0].push_back({11, 0, false});  // 11:00 AM
+    schedules[0].push_back({12, 0, false});  // 12:00 PM
+    schedules[0].push_back({13, 0, false});  // 1:00 PM
+    schedules[0].push_back({14, 0, true});   // 2:00 PM - Fin de jornada
     
     saveSchedules();
   }
@@ -270,7 +319,6 @@ void saveSchedules() {
     for (int i = 0; i < scheduleCount[s]; i++) {
       doc["schedules"][s][i]["hour"] = schedules[s][i].hour;
       doc["schedules"][s][i]["minute"] = schedules[s][i].minute;
-      doc["schedules"][s][i]["isBreak"] = schedules[s][i].isBreak;
       doc["schedules"][s][i]["isEndOfDay"] = schedules[s][i].isEndOfDay;
     }
   }
@@ -334,7 +382,6 @@ void setupWebServer() {
       for (int i = 0; i < scheduleCount[s]; i++) {
         doc["schedules"][s][i]["hour"] = schedules[s][i].hour;
         doc["schedules"][s][i]["minute"] = schedules[s][i].minute;
-        doc["schedules"][s][i]["isBreak"] = schedules[s][i].isBreak;
         doc["schedules"][s][i]["isEndOfDay"] = schedules[s][i].isEndOfDay;
       }
     }
@@ -377,7 +424,7 @@ void setupWebServer() {
     if (!request->authenticate(http_username, http_password))
       return request->requestAuthentication();
     
-    BellTime emergencyBell = {0, 0, false, false};
+    BellTime emergencyBell = {0, 0, false};
     ringBell(emergencyBell);
     request->send(200, "text/plain", "Timbre activado manualmente");
   });
@@ -420,7 +467,6 @@ void setupWebServer() {
       BellTime newBell;
       newBell.hour = bell["hour"];
       newBell.minute = bell["minute"];
-      newBell.isBreak = bell["isBreak"];
       newBell.isEndOfDay = bell["isEndOfDay"];
       schedules[scheduleIndex].push_back(newBell);
     }
@@ -443,7 +489,7 @@ void setupWebServer() {
     int minute = request->getParam("minute", true)->value().toInt();
     
     // Ajustar el RTC interno
-    rtc.setTime(0, minute, hour, 1, 1, 2023);  // segundos, minutos, horas, día, mes, año
+    rtc.setTime(0, minute, hour, 1, 1, 2025);  // segundos, minutos, horas, día, mes, año
     
     request->send(200, "text/plain", "Hora actualizada");
   });

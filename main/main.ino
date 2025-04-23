@@ -6,6 +6,10 @@
 #include <DFRobotDFPlayerMini.h>
 #include <time.h>
 #include <ESP32Time.h>
+#include <esp_task_wdt.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "Wire.h"
 #include "credentials.h"
 
 // Definición de pines
@@ -48,8 +52,21 @@ struct BellTime {
 };
 
 //Tiempo encendido timbre
-int bell_time_duration = 3000;  //Tres segundos
+int bell_time_duration = 6000;  //Seis segundos
 int mp3_time_duration = 60000;  //Un minuto
+
+//Pantalla oled 128x32
+#define I2C_SDA 1
+#define I2C_SCL 0
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+
+// Dirección I2C del display
+#define OLED_ADDR 0x3C
+
+// Crear objeto display
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // Arreglo para almacenar las tres configuraciones
 std::vector<BellTime> schedules[3];
@@ -81,6 +98,11 @@ const uint32_t holidays[holiday_count] = {
 
 
 void setup() {
+  esp_task_wdt_config_t config = {
+    .timeout_ms = 120* 1000,  //  120 seconds
+    .trigger_panic = true,     // Trigger panic if watchdog timer is not reset
+  };
+  esp_task_wdt_reconfigure(&config);
   Serial.begin(115200);
 
   // Inicializar pines
@@ -105,6 +127,22 @@ void setup() {
   // Cargar configuraciones guardadas
   loadSchedules();
 
+  // Pantalla oled
+  Wire.begin(I2C_SDA, I2C_SCL);
+  // Inicializar la pantalla OLED
+  if(!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println(F("Error al inicializar SSD1306"));
+    for(;;); // No continuar si hay error
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(F("Iniciando..."));
+  display.display();
+
+  delay(1000);
+
   // Conectar a WiFi
   setupWiFi();
 
@@ -121,11 +159,42 @@ void setup() {
 }
 
 void loop() {
+  static unsigned long lastDisplayUpdate = 0;
   // Verificar botones
   checkButtons();
 
   // Verificar si es hora de activar el timbre
   checkSchedule();
+
+  // Actualizar pantalla cada 5 segundos
+  if (millis() - lastDisplayUpdate > 5000) {
+    updateDisplay();
+    lastDisplayUpdate = millis();
+  }
+}
+
+void updateDisplay() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  
+  // Mostrar IP
+  display.setCursor(0, 0);
+  if (WiFi.status() == WL_CONNECTED) {
+    display.println(WiFi.localIP().toString());
+  } else {
+    display.println("AP: TimbreEscolar");
+  }
+  
+  // Mostrar horario activo
+  display.setCursor(0, 11);
+  display.println(scheduleNames[activeSchedule]);
+
+   // Mostrar hora actual
+  display.setCursor(0, 22);
+  display.print("Hora: ");
+  display.println(getCurrentTimeString());
+  
+  display.display();
 }
 
 void setupWiFi() {
@@ -143,6 +212,7 @@ void setupWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("WiFi Conectado!");
     Serial.println(WiFi.localIP().toString());
+
   } else {
 
     Serial.println("Error WiFi!");
@@ -216,8 +286,16 @@ void checkSchedule() {
 void ringBell(BellTime bellTime) {
   // Seleccionar canción aleatoria entre 1-15 (asumiendo que hay 10 mp3 en la tarjeta SD)
   int randomSong = random(1, 15);
-  Serial.println("¡Timbre activado!");
-  
+  Serial.println("¡Timbre Sonando!");
+
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("TIMBRE");
+  display.setCursor(0, 16);
+  display.println("SONANDO!");
+  display.display();
 
   // Activar relé para el timbre
   digitalWrite(RELAY_PIN, LOW);
@@ -231,20 +309,16 @@ void ringBell(BellTime bellTime) {
     digitalWrite(RELAY_PIN, HIGH);
     delay(500);
     digitalWrite(RELAY_PIN, LOW);
-    for (int i = 30; i < 0; i--){
-      myDFPlayer.volume(i);
-      delay(10);
-    }
+    myDFPlayer.stop();
   }
 
   // Apagar el relé después de 2 segundos
   delay(bell_time_duration);
   digitalWrite(RELAY_PIN, HIGH);
-  delay(bell_time_duration - mp3_time_duration);
-  for (int i = 30; i < 0; i--){
-    myDFPlayer.volume(i);
-    delay(10);
-  }
+  delay(mp3_time_duration - bell_time_duration);
+  myDFPlayer.stop();
+
+  updateDisplay();
 }
 
 void checkButtons() {
@@ -264,7 +338,7 @@ void checkButtons() {
     delay(50);  // Debounce
     if (digitalRead(DISABLE_BUTTON_PIN) == LOW) {
       timbreEnabled = !timbreEnabled;
-      // updateDisplay();
+      updateDisplay();
       while (digitalRead(DISABLE_BUTTON_PIN) == LOW)
         ;  // Esperar hasta que se suelte el botón
     }

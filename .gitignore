@@ -53,3 +53,8 @@ dkms.conf
 
 # Credentials
 main/credentials.h
+
+# Vs code
+.vscode/
+
+.DS_Store

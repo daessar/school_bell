@@ -132,6 +132,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const minuteFormatted = String(bell.minute).padStart(2, '0');
             
             bellElement.innerHTML = `
+                <div class="bell-name">
+                    <input type="text" class="bell-name-input" placeholder="Nombre de la clase">
+                </div>
                 <div class="bell-time">
                     <input type="number" class="bell-hour" min="0" max="23" value="${bell.hour}" placeholder="Hora">
                 </div>
@@ -139,10 +142,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     <input type="number" class="bell-minute" min="0" max="59" value="${bell.minute}" placeholder="Min">
                 </div>
                 <div class="bell-options">
-                    <div class="checkbox-container">
-                        <input type="checkbox" id="break_${scheduleIndex}_${index}" class="is-break" ${bell.isBreak ? 'checked' : ''}>
-                        <label for="break_${scheduleIndex}_${index}">Recreo</label>
-                    </div>
                     <div class="checkbox-container">
                         <input type="checkbox" id="end_${scheduleIndex}_${index}" class="is-end" ${bell.isEndOfDay ? 'checked' : ''}>
                         <label for="end_${scheduleIndex}_${index}">Fin de jornada</label>
@@ -177,7 +176,6 @@ document.addEventListener('DOMContentLoaded', function() {
         scheduleData.schedules[scheduleIndex].push({
             hour: 8,
             minute: 0,
-            isBreak: false,
             isEndOfDay: false
         });
         
@@ -206,13 +204,11 @@ document.addEventListener('DOMContentLoaded', function() {
         bellItems.forEach(item => {
             const hour = parseInt(item.querySelector('.bell-hour').value);
             const minute = parseInt(item.querySelector('.bell-minute').value);
-            const isBreak = item.querySelector('.is-break').checked;
             const isEndOfDay = item.querySelector('.is-end').checked;
             
             updatedBells.push({
                 hour,
                 minute,
-                isBreak,
                 isEndOfDay
             });
         });

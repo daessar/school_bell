@@ -245,7 +245,7 @@ bool weekend(int day) {
 }
 
 bool holiday() {
-  uint32_t fechaNum = (rtc.getYear() * 10000 + rtc.getMonth() * 100 + rtc.getDay());
+  uint32_t fechaNum = (rtc.getYear() * 10000 + (rtc.getMonth() + 1) * 100 + rtc.getDay());
 
   for (int i = 0; i < holiday_count; i++) {
     if (holidays[i] == fechaNum) {
@@ -309,7 +309,6 @@ void ringBell(BellTime bellTime) {
     digitalWrite(RELAY_PIN, HIGH);
     delay(500);
     digitalWrite(RELAY_PIN, LOW);
-    myDFPlayer.stop();
   }
 
   // Apagar el relé después de 2 segundos

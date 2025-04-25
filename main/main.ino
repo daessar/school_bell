@@ -18,7 +18,7 @@
 #define DISABLE_BUTTON_PIN 2
 
 // Configuración DFPlayer
-SoftwareSerial mySoftwareSerial(19, 20);  // RX, TX
+SoftwareSerial mySoftwareSerial(14, 20);  // RX, TX
 DFRobotDFPlayerMini myDFPlayer;
 
 // Sync time co
@@ -54,6 +54,13 @@ struct BellTime {
 //Tiempo encendido timbre
 int bell_time_duration = 6000;  //Seis segundos
 int mp3_time_duration = 60000;  //Un minuto
+
+// Variables globales para control no bloqueante
+unsigned long previousMillis = 0;
+unsigned long bellStartTime = 0;
+int bellState = 0; // 0: inactivo, 1: primera campana, 2: pausa para campana doble, 3: segunda campana, 4: fade out
+bool isRingInProgress = false;
+bool isEndOfDayBell = false;
 
 //Pantalla oled 128x32
 #define I2C_SDA 1
@@ -98,11 +105,11 @@ const uint32_t holidays[holiday_count] = {
 
 
 void setup() {
-  esp_task_wdt_config_t config = {
-    .timeout_ms = 120* 1000,  //  120 seconds
-    .trigger_panic = true,     // Trigger panic if watchdog timer is not reset
-  };
-  esp_task_wdt_reconfigure(&config);
+  // esp_task_wdt_config_t config = {
+  //   .timeout_ms = 120* 1000,  //  120 seconds
+  //   .trigger_panic = true,     // Trigger panic if watchdog timer is not reset
+  // };
+  // esp_task_wdt_reconfigure(&config);
   Serial.begin(115200);
 
   // Inicializar pines
@@ -159,42 +166,64 @@ void setup() {
 }
 
 void loop() {
-  static unsigned long lastDisplayUpdate = 0;
   // Verificar botones
   checkButtons();
 
   // Verificar si es hora de activar el timbre
   checkSchedule();
 
-  // Actualizar pantalla cada 5 segundos
-  if (millis() - lastDisplayUpdate > 5000) {
-    updateDisplay();
-    lastDisplayUpdate = millis();
+  // Manejar el timbre de forma no bloqueante
+  handleBellState();
+
+  // Actualizar pantalla
+  updateDisplay();
+
+  if (myDFPlayer.available()) {
+    printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
   }
 }
 
 void updateDisplay() {
+  static unsigned long lastDisplayUpdate = 0;
   display.clearDisplay();
   display.setTextSize(1);
-  
-  // Mostrar IP
-  display.setCursor(0, 0);
-  if (WiFi.status() == WL_CONNECTED) {
-    display.println(WiFi.localIP().toString());
-  } else {
-    display.println("AP: TimbreEscolar");
-  }
-  
-  // Mostrar horario activo
-  display.setCursor(0, 11);
-  display.println(scheduleNames[activeSchedule]);
 
-   // Mostrar hora actual
-  display.setCursor(0, 22);
-  display.print("Hora: ");
-  display.println(getCurrentTimeString());
-  
-  display.display();
+  if (millis() - lastDisplayUpdate > 1000) {
+
+    if (isRingInProgress){
+      display.clearDisplay();
+      display.setTextSize(2);
+      display.setCursor(0, 0);
+      display.println("Timbre");
+      display.setCursor(0, 16);
+      display.println("Activado");
+      display.display();
+
+    }
+    else  {
+      // Mostrar IP
+      display.setCursor(0, 0);
+      if (WiFi.status() == WL_CONNECTED) {
+        display.println(WiFi.localIP().toString());
+      } else {
+        display.println("AP: TimbreEscolar");
+      }
+      
+      // Mostrar horario activo
+      display.setCursor(0, 11);
+      display.println(scheduleNames[activeSchedule]);
+
+      // Mostrar hora actual
+      display.setCursor(0, 22);
+      display.print("Hora: ");
+      display.println(getCurrentTimeString());
+      
+      display.display();
+
+    }
+      
+      lastDisplayUpdate = millis();
+  }
 }
 
 void setupWiFi() {
@@ -277,47 +306,142 @@ void checkSchedule() {
 
   for (int i = 0; i < scheduleCount[activeSchedule]; i++) {
     if (schedules[activeSchedule][i].hour == currentHour && schedules[activeSchedule][i].minute == currentMinute) {
-      ringBell(schedules[activeSchedule][i]);
+      startBell(schedules[activeSchedule][i].isEndOfDay);
       break;
     }
   }
 }
 
-void ringBell(BellTime bellTime) {
-  // Seleccionar canción aleatoria entre 1-15 (asumiendo que hay 10 mp3 en la tarjeta SD)
+void printDetail(uint8_t type, int value){
+  switch (type) {
+    case TimeOut:
+      Serial.println(F("Time Out!"));
+      break;
+    case WrongStack:
+      Serial.println(F("Stack Wrong!"));
+      break;
+    case DFPlayerCardInserted:
+      Serial.println(F("Card Inserted!"));
+      break;
+    case DFPlayerCardRemoved:
+      Serial.println(F("Card Removed!"));
+      break;
+    case DFPlayerCardOnline:
+      Serial.println(F("Card Online!"));
+      break;
+    case DFPlayerUSBInserted:
+      Serial.println("USB Inserted!");
+      break;
+    case DFPlayerUSBRemoved:
+      Serial.println("USB Removed!");
+      break;
+    case DFPlayerPlayFinished:
+      Serial.print(F("Number:"));
+      Serial.print(value);
+      Serial.println(F(" Play Finished!"));
+      break;
+    case DFPlayerError:
+      Serial.print(F("DFPlayerError:"));
+      switch (value) {
+        case Busy:
+          Serial.println(F("Card not found"));
+          break;
+        case Sleeping:
+          Serial.println(F("Sleeping"));
+          break;
+        case SerialWrongStack:
+          Serial.println(F("Get Wrong Stack"));
+          break;
+        case CheckSumNotMatch:
+          Serial.println(F("Check Sum Not Match"));
+          break;
+        case FileIndexOut:
+          Serial.println(F("File Index Out of Bound"));
+          break;
+        case FileMismatch:
+          Serial.println(F("Cannot Find File"));
+          break;
+        case Advertise:
+          Serial.println(F("In Advertise"));
+          break;
+        default:
+          break;
+      }
+      break;
+    default:
+      break;
+  }
+  
+}
+
+void startBell(bool endOfDay) {
+  if (isRingInProgress) return;
+  
+  // Seleccionar canción aleatoria entre 1-15
   int randomSong = random(1, 15);
-  Serial.println("¡Timbre Sonando!");
-
-  display.clearDisplay();
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println("TIMBRE");
-  display.setCursor(0, 16);
-  display.println("SONANDO!");
-  display.display();
-
+  Serial.println("¡Timbre activado!");
+  
   // Activar relé para el timbre
   digitalWrite(RELAY_PIN, LOW);
-
-  //Reproducir mp3
+  
+  // Reproducir mp3
   myDFPlayer.play(randomSong);
+  myDFPlayer.volume(30);
+  
+  // Establecer variables para la gestión no bloqueante
+  isRingInProgress = true;
+  isEndOfDayBell = endOfDay;
+  bellStartTime = millis();
+  bellState = 1;
+}
 
-  // El timbre suena dos veces para fin de jornada
-  if (bellTime.isEndOfDay) {
-    delay(bell_time_duration);
-    digitalWrite(RELAY_PIN, HIGH);
-    delay(500);
-    digitalWrite(RELAY_PIN, LOW);
+void handleBellState() {
+  if (!isRingInProgress) return;
+  
+  unsigned long currentMillis = millis();
+  unsigned long elapsedTime = currentMillis - bellStartTime;
+  
+  switch (bellState) {
+    case 1: // Primera campana
+      if (elapsedTime >= bell_time_duration) {
+        digitalWrite(RELAY_PIN, HIGH);
+        
+        if (isEndOfDayBell) {
+          // Preparar para la segunda campana (fin de jornada)
+          bellStartTime = currentMillis;
+          bellState = 2;
+        } else {
+          // Preparar para fade out gradual del volumen
+          bellStartTime = currentMillis;
+          bellState = 4;
+        }
+      }
+      break;
+      
+    case 2: // Pausa entre campanas (para fin de jornada)
+      if (elapsedTime >= 500) {
+        digitalWrite(RELAY_PIN, LOW);
+        bellStartTime = currentMillis;
+        bellState = 3;
+      }
+      break;
+      
+    case 3: // Segunda campana (fin de jornada)
+      if (elapsedTime >= bell_time_duration) {
+        digitalWrite(RELAY_PIN, HIGH);
+        bellStartTime = currentMillis;
+        bellState = 4;
+      }
+      break;
+      
+    case 4: // Apagar mp3 y reiniciar variables
+      if (elapsedTime >= mp3_time_duration - bell_time_duration) {
+        myDFPlayer.stop();
+        isRingInProgress = false;
+        bellState = 0;
+      }
+      break;
   }
-
-  // Apagar el relé después de 2 segundos
-  delay(bell_time_duration);
-  digitalWrite(RELAY_PIN, HIGH);
-  delay(mp3_time_duration - bell_time_duration);
-  myDFPlayer.stop();
-
-  updateDisplay();
 }
 
 void checkButtons() {
@@ -325,10 +449,12 @@ void checkButtons() {
   if (digitalRead(EMERGENCY_BUTTON_PIN) == LOW) {
     delay(50);  // Debounce
     if (digitalRead(EMERGENCY_BUTTON_PIN) == LOW) {
-      BellTime emergencyBell = { 0, 0, false };
-      ringBell(emergencyBell);
+      if (!isRingInProgress) {
+        startBell(false);
+      }
       while (digitalRead(EMERGENCY_BUTTON_PIN) == LOW)
-        ;  // Esperar hasta que se suelte el botón
+        handleBellState();
+        delay(10); // Pequeño delay para no saturar el CPU
     }
   }
 
@@ -339,7 +465,8 @@ void checkButtons() {
       timbreEnabled = !timbreEnabled;
       updateDisplay();
       while (digitalRead(DISABLE_BUTTON_PIN) == LOW)
-        ;  // Esperar hasta que se suelte el botón
+        handleBellState();
+        delay(10); // Pequeño delay para no saturar el CPU
     }
   }
 }
@@ -510,8 +637,9 @@ void setupWebServer() {
     if (!request->authenticate(http_username, http_password))
       return request->requestAuthentication();
 
-    BellTime emergencyBell = { 0, 0, false };
-    ringBell(emergencyBell);
+      if (!isRingInProgress) {
+      startBell(false);
+    }
     request->send(200, "text/plain", "Timbre activado manualmente");
   });
 
